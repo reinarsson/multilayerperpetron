@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -83,3 +84,59 @@ def test_xor_learns():
     assert mlp.run([0, 1])[0] > 0.9
     assert mlp.run([1, 0])[0] > 0.9
     assert mlp.run([1, 1])[0] < 0.1
+
+
+# ── Save / load ────────────────────────────────────────────────────────────────
+
+def test_save_creates_npz_file(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[2, 3, 1])
+    mlp.save(tmp_path / "model.npz")
+    assert (tmp_path / "model.npz").exists()
+
+
+def test_save_creates_json_sidecar(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[2, 3, 1])
+    mlp.save(tmp_path / "model.npz")
+    assert (tmp_path / "model.json").exists()
+
+
+def test_json_sidecar_contains_model_params(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[2, 3, 1], bias=0.5, eta=0.1)
+    mlp.save(tmp_path / "model.npz")
+    data = json.loads((tmp_path / "model.json").read_text())
+    assert data["model"]["layers"] == [2, 3, 1]
+    assert data["model"]["bias"] == 0.5
+    assert data["model"]["eta"] == 0.1
+    assert data["model"]["activation"] == "sigmoid"
+    assert "saved_at" in data
+
+
+def test_json_sidecar_includes_custom_metadata(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[2, 3, 1])
+    mlp.save(tmp_path / "model.npz", metadata={"accuracy": {"test": 0.84}})
+    data = json.loads((tmp_path / "model.json").read_text())
+    assert data["accuracy"]["test"] == 0.84
+
+
+def test_save_creates_output_dir_if_missing(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[2, 3, 1])
+    mlp.save(tmp_path / "nested" / "dir" / "model.npz")
+    assert (tmp_path / "nested" / "dir" / "model.npz").exists()
+
+
+def test_load_restores_identical_predictions(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[2, 3, 1])
+    for _ in range(100):
+        mlp.bp([0, 1], [1])
+    before = mlp.run([0, 1]).tolist()
+    mlp.save(tmp_path / "model.npz")
+    mlp2 = MultiLayerPerceptron.load(tmp_path / "model.npz")
+    after = mlp2.run([0, 1]).tolist()
+    assert before == pytest.approx(after)
+
+
+def test_load_restores_layer_structure(tmp_path: Path):
+    mlp = MultiLayerPerceptron(layers=[3, 5, 2])
+    mlp.save(tmp_path / "model.npz")
+    mlp2 = MultiLayerPerceptron.load(tmp_path / "model.npz")
+    assert mlp2.layers.tolist() == [3, 5, 2]
